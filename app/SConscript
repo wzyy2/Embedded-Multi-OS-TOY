@@ -1,0 +1,26 @@
+# for module compiling
+import os
+Import('rtconfig')
+Import('RTT_ROOT')
+from building import *
+
+
+cwd = str(Dir('#'))
+objs = []
+list = os.listdir(cwd)
+
+for d in list:
+    path = os.path.join(cwd, d)
+    if os.path.isfile(os.path.join(path, 'SConscript')):
+        objs = objs + SConscript(os.path.join(d, 'SConscript'))
+
+path = os.path.join(cwd, rtconfig.CPU)
+
+if rtconfig.PLATFORM == 'gcc':
+    src = Glob(path + '/*.c') + Glob(path + '/*_gcc.S') + Glob(path + '/*_init.S')
+CPPPATH = [path]
+group = DefineGroup(rtconfig.CPU.upper(), src, depend = [''], CPPPATH = CPPPATH)
+
+objs += group
+
+Return('objs')
