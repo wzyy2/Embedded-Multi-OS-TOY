@@ -18,7 +18,9 @@
 #include "am33xx.h"
 #include "interrupt.h"
 
-#define AINTC_BASE  AM33XX_AINTC_REGS
+#ifdef RT_USING_VMM
+#include <vmm.h>
+#endif
 
 #define MAX_HANDLERS	128
 
@@ -28,7 +30,7 @@ extern volatile rt_uint8_t rt_interrupt_nest;
 struct rt_irq_desc isr_table[MAX_HANDLERS];
 rt_uint32_t rt_interrupt_from_thread, rt_interrupt_to_thread;
 rt_uint32_t rt_thread_switch_interrupt_flag;
-
+static unsigned int aintc_base;
 /**
  * @addtogroup AM33xx
  */
@@ -37,16 +39,16 @@ rt_uint32_t rt_thread_switch_interrupt_flag;
 void rt_dump_aintc(void)
 {
     int k;
-    rt_kprintf("active irq %d", INTC_SIR_IRQ(AINTC_BASE));
+    rt_kprintf("active irq %d", INTC_SIR_IRQ(aintc_base));
     rt_kprintf("\n--- hw mask ---\n");
     for (k = 0; k < 4; k++)
     {
-        rt_kprintf("0x%08x, ", INTC_MIR(AINTC_BASE, k));
+        rt_kprintf("0x%08x, ", INTC_MIR(aintc_base, k));
     }
     rt_kprintf("\n--- hw itr ---\n");
     for (k = 0; k < 4; k++)
     {
-        rt_kprintf("0x%08x, ", INTC_ITR(AINTC_BASE, k));
+        rt_kprintf("0x%08x, ", INTC_ITR(aintc_base, k));
     }
     rt_kprintf("\n");
 }
@@ -55,13 +57,16 @@ const unsigned int AM335X_VECTOR_BASE = 0x4030FC00;
 extern void rt_cpu_vector_set_base(unsigned int addr);
 extern int system_vectors;
 
+
 static void rt_hw_vector_init(void)
 {
+#ifndef RT_USING_VMM    
     unsigned int *dest = (unsigned int *)AM335X_VECTOR_BASE;
     unsigned int *src =  (unsigned int *)&system_vectors;
 
     rt_memcpy(dest, src, 16 * 4);
     rt_cpu_vector_set_base(AM335X_VECTOR_BASE);
+#endif    
 }
 
 /**
@@ -71,6 +76,12 @@ void rt_hw_interrupt_init(void)
 {
     /* initialize vector table */
     rt_hw_vector_init();
+
+#ifdef RT_USING_VMM
+    aintc_base = vmm_find_iomap("AINTC");
+#else
+    aintc_base = AM33XX_AINTC_REGS;
+#endif
 
     /* init exceptions table */
     rt_memset(isr_table, 0x00, sizeof(isr_table));
@@ -88,7 +99,7 @@ void rt_hw_interrupt_init(void)
  */
 void rt_hw_interrupt_mask(int vector)
 {
-    INTC_MIR_SET(AINTC_BASE, vector >> 0x05) = 0x1 << (vector & 0x1f);
+    INTC_MIR_SET(aintc_base, vector >> 0x05) = 0x1 << (vector & 0x1f);
 }
 
 /**
@@ -97,7 +108,7 @@ void rt_hw_interrupt_mask(int vector)
  */
 void rt_hw_interrupt_umask(int vector)
 {
-    INTC_MIR_CLEAR(AINTC_BASE, vector >> 0x05) = 0x1 << (vector & 0x1f);
+    INTC_MIR_CLEAR(aintc_base, vector >> 0x05) = 0x1 << (vector & 0x1f);
 }
 
 /**
@@ -113,7 +124,7 @@ void rt_hw_interrupt_control(int vector, int priority, int route)
     else
         fiq = 1;
 
-    INTC_ILR(AINTC_BASE, vector) = ((priority << 0x02) & 0x1FC) | fiq ;
+    INTC_ILR(aintc_base, vector) = ((priority << 0x02) & 0x1FC) | fiq ;
 }
 
 int rt_hw_interrupt_get_active(int fiq_irq)
@@ -121,11 +132,11 @@ int rt_hw_interrupt_get_active(int fiq_irq)
     int ir;
     if (fiq_irq == INT_FIQ)
     {
-        ir = INTC_SIR_FIQ(AINTC_BASE) & 0x7f;
+        ir = INTC_SIR_FIQ(aintc_base) & 0x7f;
     }
     else
     {
-        ir = INTC_SIR_IRQ(AINTC_BASE) & 0x7f;
+        ir = INTC_SIR_IRQ(aintc_base) & 0x7f;
     }
 
     return ir;
@@ -136,12 +147,12 @@ void rt_hw_interrupt_ack(int fiq_irq)
     if (fiq_irq == INT_FIQ)
     {
         /* new FIQ generation */
-        INTC_CONTROL(AINTC_BASE) |= 0x02;
+        INTC_CONTROL(aintc_base) |= 0x02;
     }
     else
     {
         /* new IRQ generation */
-        INTC_CONTROL(AINTC_BASE) |= 0x01;
+        INTC_CONTROL(aintc_base) |= 0x01;
     }
 }
 
@@ -179,12 +190,12 @@ rt_isr_handler_t rt_hw_interrupt_install(int vector, rt_isr_handler_t handler,
  */
 void rt_hw_interrupt_trigger(int vector)
 {
-    INTC_ISR_SET(AINTC_BASE, vector>>5) = 1 << (vector & 0x1f);
+    INTC_ISR_SET(aintc_base, vector>>5) = 1 << (vector & 0x1f);
 }
 
 void rt_hw_interrupt_clear(int vector)
 {
-    INTC_ISR_CLEAR(AINTC_BASE, vector>>5) = 1 << (vector & 0x1f);
+    INTC_ISR_CLEAR(aintc_base, vector>>5) = 1 << (vector & 0x1f);
 }
 
 void rt_dump_isr_table(void)

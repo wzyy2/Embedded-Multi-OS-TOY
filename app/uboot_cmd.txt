@@ -1,3 +1,11 @@
 mmcinfo
+fatload mmc 0 0xc7600000 rtthread.bin
+go 0xc7600000
+fatload mmc 0 0x80200000 rtthread1.bin
+fatload mmc 0 0xc7600000 rtthread1.bin
 fatload mmc 0 0x80200000 rtthread.bin
 go 0x80200000
+
+go 0x90000000
+
+fatload mmc 0 0xE0000000 rtthread.bin

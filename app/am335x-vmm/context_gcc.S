@@ -22,13 +22,20 @@
  * 2013-07-05     Bernard      the first version
  */
 
+#include <rtconfig.h>
+
+#ifdef RT_USING_VMM
+#include <vmm.h>
+#endif
+
+.section .text, "ax"
 /*
  * rt_base_t rt_hw_interrupt_disable();
  */
 .globl rt_hw_interrupt_disable
 rt_hw_interrupt_disable:
     mrs r0, cpsr
-    cpsid if
+    cpsid i
     bx  lr
 
 /*
@@ -36,9 +43,29 @@ rt_hw_interrupt_disable:
  */
 .globl rt_hw_interrupt_enable
 rt_hw_interrupt_enable:
-    msr cpsr_c, r0
+    msr cpsr, r0
     bx  lr
 
+/*
+ * void rt_hw_context_switch_to(rt_uint32 to);
+ * r0 --> to
+ */
+.globl rt_hw_context_switch_to
+rt_hw_context_switch_to:
+    ldr sp, [r0]            @ get new task stack pointer
+
+    ldmfd sp!, {r4}         @ pop new task spsr
+    msr spsr_cxsf, r4
+
+    ldmfd sp!, {r0-r12, lr, pc}^   @ pop new task r0-r12, lr & pc
+
+.section .bss.share.isr
+_guest_switch_lvl:
+    .word 0
+
+.globl vmm_virq_update
+
+.section .text.isr, "ax"
 /*
  * void rt_hw_context_switch(rt_uint32 from, rt_uint32 to);
  * r0 --> from
@@ -58,27 +85,70 @@ rt_hw_context_switch:
     str sp, [r0]            @ store sp in preempted tasks TCB
     ldr sp, [r1]            @ get new task stack pointer
 
+#ifdef RT_USING_VMM
+#ifdef RT_VMM_USING_DOMAIN
+    @ need to make sure we are in vmm domain as we would use rt_current_thread
+    ldr     r2, =vmm_domain_val
+    ldr     r7, [r2]
+    mcr     p15, 0, r7, c3, c0
+#endif
+
+    /* check whether vmm thread, otherwise, update vIRQ */
+    ldr     r3, =rt_current_thread
+    ldr     r4, [r3]
+    ldr     r5, =vmm_thread
+    cmp     r4, r5
+    beq     switch_to_guest
+
+    @ not falling into guest. Simple task ;-)
+    ldmfd sp!, {r6}         @ pop new task cpsr to spsr
+    msr spsr_cxsf, r6
+    ldmfd sp!, {r0-r12, lr, pc}^
+
+switch_to_guest:
+#ifdef RT_VMM_USING_DOMAIN
+    @ the stack is saved in the guest domain so we need to
+    @ come back to the guest domain to get the registers.
+    ldr     r1, =super_domain_val
+    ldr     r0, [r1]
+    mcr     p15, 0, r0, c3, c0
+#endif
+    /* The user can do nearly anything in rt_thread_idle_excute because it will
+    call the thread->cleanup. One common thing is sending events and wake up
+    threads. So the guest thread will be preempted. This is the only point that
+    the guest thread would call rt_hw_context_switch and "yield".
+
+    More over, rt_schedule will call this function and this function *will*
+    reentrant. If that happens, we need to make sure that call the
+    rt_thread_idle_excute and vmm_virq_update again and we are in super domain.
+    I use a "reference count" to achieve such behaviour. If you have better
+    idea, tell me. */
+    ldr     r4, =_guest_switch_lvl
+    ldr     r5, [r4]
+    add     r5, r5, #1
+    str     r5, [r4]
+    cmp     r5, #1
+    bne     _switch_through
+
+    bl      rt_thread_idle_excute
+    bl      vmm_virq_update
+
+    /* we need _guest_switch_lvl to protect until _switch_through, but it's OK
+     * to cleanup the reference count here because the code below will not be
+     * reentrant. */
+    sub     r5, r5, #1
+    str     r5, [r4]
+
+#ifdef RT_VMM_USING_DOMAIN
+    ldr     r1, =guest_domain_val
+    ldr     r0, [r1]
+    mcr     p15, 0, r0, c3, c0
+#endif
+_switch_through:
+#endif /* RT_USING_VMM */
     ldmfd sp!, {r4}         @ pop new task cpsr to spsr
     msr spsr_cxsf, r4
-
-_do_switch:
     ldmfd sp!, {r0-r12, lr, pc}^  @ pop new task r0-r12, lr & pc, copy spsr to cpsr
-
-/*
- * void rt_hw_context_switch_to(rt_uint32 to);
- * r0 --> to
- */
-.globl rt_hw_context_switch_to
-rt_hw_context_switch_to:
-    ldr sp, [r0]            @ get new task stack pointer
-
-    ldmfd sp!, {r4}         @ pop new task spsr
-    msr spsr_cxsf, r4
-
-    bic r4, r4, #0x20       @ must be ARM mode
-    msr cpsr_cxsf, r4
-
-    ldmfd sp!, {r0-r12, lr, pc}^   @ pop new task r0-r12, lr & pc
 
 /*
  * void rt_hw_context_switch_interrupt(rt_uint32 from, rt_uint32 to);
@@ -92,10 +162,10 @@ rt_hw_context_switch_interrupt:
     ldr r3, [r2]
     cmp r3, #1
     beq _reswitch
+    ldr ip, =rt_interrupt_from_thread   @ set rt_interrupt_from_thread
     mov r3, #1              @ set rt_thread_switch_interrupt_flag to 1
+    str r0, [ip]
     str r3, [r2]
-    ldr r2, =rt_interrupt_from_thread   @ set rt_interrupt_from_thread
-    str r0, [r2]
 _reswitch:
     ldr r2, =rt_interrupt_to_thread     @ set rt_interrupt_to_thread
     str r1, [r2]

@@ -22,6 +22,10 @@
 #include "serial.h"
 #include "serial_reg.h"
 
+#ifdef RT_USING_VMM
+#include <vmm.h>
+ #endif
+ 
 struct am33xx_uart
 {
     unsigned long base;
@@ -230,12 +234,26 @@ struct rt_serial_device serial5;
 #define PRM_PER_POWSTATEOFF       (0)
 #define PRM_PER_PERMEMSTATEOFF    (0)
 
+#ifdef RT_USING_VMM
+static void init_iomap()
+{
+#ifdef RT_USING_UART1    
+    uart1.base = vmm_find_iomap("UART1");
+#endif
+}
+#endif
+
 static void poweron_per_domain(void)
 {
     unsigned long prcm_base;
     unsigned long prm_state;
 
+#ifdef RT_USING_VMM
+    prcm_base = vmm_find_iomap("PRCM");
+#else
     prcm_base = AM33XX_PRCM_REGS;
+#endif
+
 
     /* wait for ongoing translations */
     for (prm_state = PRM_PER_PWRSTST_REG(prcm_base);
@@ -261,7 +279,12 @@ static void start_uart_clk(void)
 {
     unsigned long prcm_base;
 
+#ifdef RT_USING_VMM
+    prcm_base = vmm_find_iomap("PRCM");
+#else
     prcm_base = AM33XX_PRCM_REGS;
+#endif
+
 
     /* software forced wakeup */
     CM_PER_L4LS_CLKSTCTRL_REG(prcm_base) |= 0x2;
@@ -315,7 +338,11 @@ static void config_pinmux(void)
 {
     unsigned long ctlm_base;
 
-    ctlm_base = AM33XX_CTLM_REGS;
+#ifdef RT_USING_VMM
+    ctlm_base = vmm_find_iomap("CTLM");
+#else
+    prcm_base = AM33XX_CTLM_REGS;
+#endif
 
     /* make sure the pin mux is OK for uart */
 #ifdef RT_USING_UART1
@@ -346,6 +373,10 @@ static void config_pinmux(void)
 int rt_hw_serial_init(void)
 {
     struct serial_configure config = RT_SERIAL_CONFIG_DEFAULT;
+
+#ifdef RT_USING_VMM
+    init_iomap();
+#endif
 
     poweron_per_domain();
     start_uart_clk();

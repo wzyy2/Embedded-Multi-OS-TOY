@@ -43,7 +43,8 @@ if PLATFORM == 'gcc':
     #DEVICE = ' '
     CFLAGS = DEVICE
     AFLAGS = ' -c' + DEVICE + ' -x assembler-with-cpp -D__ASSEMBLY__'
-    LFLAGS = DEVICE + ' -Wl,--gc-sections,-Map=rtthread-beaglebone.map,-cref,-u,Reset_Handler -T beaglebone_ram.lds'
+    LINK_SCRIPT = 'bb_vmm.lds'
+    LFLAGS = DEVICE + ' -Wl,--gc-sections,-Map=realview.map,-cref,-u,system_vectors'+ ' -T %s' % LINK_SCRIPT
 
     CPATH = ''
     LPATH = ''

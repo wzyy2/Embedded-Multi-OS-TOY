@@ -35,11 +35,13 @@ static struct vmm_domain domain =
 
 static struct vmm_iomap iomap[RT_VMM_IOMAP_MAXNR] =
 {
-	{.name = "UART1",    .pa = 0x1000A000, .size = 4096},
-	{.name = "TIMER",    .pa = 0x10012000, .size = 4096},
-	{.name = "GIC_CPU",  .pa = 0x1E000000, .size = 4096},
-	{.name = "GIC_DIST", .pa = 0x1E001000, .size = 4096},
-	{.name = "SYS_CTRL", .pa = 0x1001A000, .size = 4096},
+	{.name = "CTLM",    .pa = 0x44E10000, .size = 4096},
+	{.name = "PRCM",    .pa = 0x44E00000, .size = 4096},
+	{.name = "UART1",  .pa = 0x48022000, .size = 4096},
+	{.name = "AINTC",  .pa = 0x48200000, .size = 4096},
+	{.name = "TIMER7",  .pa = 0x4804A000, .size = 4096},
+	// {.name = "GIC_DIST", .pa = 0x1E001000, .size = 4096},
+	// {.name = "SYS_CTRL", .pa = 0x1001A000, .size = 4096},
 	{.pa = 0},
 };
 
@@ -48,6 +50,7 @@ void vmm_iomap_init(void)
 	int index;
 
 	_linux_iomap = &iomap[0];
+
 
 	BUILD_BUG_ON(ARRAY_SIZE(iomap) > RT_VMM_IOMAP_MAXNR);
 
@@ -60,7 +63,7 @@ void vmm_iomap_init(void)
 				ioremap_nocache(_linux_iomap[index].pa,
 						_linux_iomap[index].size);
 
-		printk("%s: 0x%08lx --> 0x%p, size %u\n",
+		printk(KERN_ALERT"%s: 0x%08lx --> 0x%p, size %u\n",
 			_linux_iomap[index].name,
 			_linux_iomap[index].pa,
 			_linux_iomap[index].va,
@@ -125,12 +128,12 @@ void vmm_entry(void)
 		.domain = &domain,
 	};
 
-	printk("Entry VMM:0x%08x with iomap 0x%p\n", VMM_BEGIN, _linux_iomap);
+	printk(KERN_ALERT"Entry VMM:0x%08x with iomap 0x%p\n", VMM_BEGIN, _linux_iomap);
 
 	spin_lock_irqsave(&init_lock,  flags);
-
 	memcpy((void*)(LINUX_VECTOR_POS), (void*)0xFFFF0000,
 	       LINUX_VECTOR_PGSZ);
+
 	flush_icache_range(LINUX_VECTOR_POS,
 			   LINUX_VECTOR_POS + LINUX_VECTOR_PGSZ);
 
@@ -140,11 +143,11 @@ void vmm_entry(void)
 	/*dump_vector(VMM_END-LINUX_VECTOR_PGSZ);*/
 
 	entry = (vmm_entry_t)VMM_BEGIN;
-
 	vmm_context_init(&RT_VMM_SHARE->ctx);
+	
 	vmm_set_status(0x01);
 
-	pr_info("Linux domain: kernel: %d, user: %d, io: %d\n",
+	printk(KERN_ALERT"Linux domain: kernel: %d, user: %d, io: %d\n",
 		DOMAIN_KERNEL, DOMAIN_USER, DOMAIN_IO);
 
 	/* switch to RTT and Good Luck */
@@ -158,7 +161,7 @@ void vmm_entry(void)
 		asm volatile ("cpsie i":::"memory", "cc");
 	}
 
-	printk("come back to Linux.\n");
+	printk(KERN_ALERT"come back to Linux.\n");
 
 }
 
@@ -170,8 +173,8 @@ int vmm_load_fw(const char* filename)
 	loff_t pos = 0;
 	struct file *flp = NULL;
 	char *buf_ptr = (char*)VMM_BEGIN;
-
-	printk("loading RT-Thread:%s ....", filename);
+	
+	printk(KERN_ALERT"loading RT-Thread:%s ....", filename);
 	/* FIXME: we should not need this actually. But currently Linux would
 	 * hang without this. Let's just proceed and I will go back to handle
 	 * this in the future. */
@@ -180,7 +183,7 @@ int vmm_load_fw(const char* filename)
 	flp = filp_open(filename, O_RDONLY, S_IRWXU);
 	if (IS_ERR(flp))
 	{
-		printk("vmm loader: open file failed. "
+		printk(KERN_ALERT"vmm loader: open file failed. "
 		       "Return 0x%p\n", flp);
 		return -1;
 	}
@@ -202,7 +205,7 @@ int vmm_load_fw(const char* filename)
 
 	filp_close(flp, NULL);
 
-	printk("done!\n");
+	printk(KERN_ALERT"done!\n");
 
 	/* flush RT-Thread memory */
 	flush_cache_vmap(VMM_BEGIN, VMM_END);
@@ -212,7 +215,7 @@ int vmm_load_fw(const char* filename)
 
 static int __init vmm_init(void)
 {
-	printk("VMM started.\n");
+	printk(KERN_ALERT"VMM started.\n");
 
 	vmm_iomap_init();
 	/* Open the domain permission so we could write firmware to it */
