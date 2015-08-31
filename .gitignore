@@ -22,3 +22,4 @@ documentation/html
 *.i
 *.d
 *.swp
+*.ko
