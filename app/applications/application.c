@@ -25,6 +25,11 @@ int rt_application_init()
     /* do component initialization */
     rt_components_init();
 
+#ifdef APPLICATION_QUADROTOR
+    extern int quadrotor_entry();
+    quadrotor_entry();
+#endif
+
 #ifdef RT_USING_GDB
     gdb_set_device("uart4");
     gdb_start();
